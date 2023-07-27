@@ -108,17 +108,91 @@ class AutomatedMachineLearning:
 
 
 
-    def split_data(self, date_split=False, train_cutoff=None, test_cutoff=None, val_cutoff=None):
-        # Implement data splitting logic based on date_split and cutoffs or random split
-        pass
+    def split_data(self, date_col: str, date_split: bool = False, train_cutoff_date: str = None, test_cutoff_date: str = None, val_cutoff_date: str = None,
+                    train_cutoff_prop: float = None, test_cutoff_prop: float = None):
+        """
+        Split dataset into training, test and valuation sets.
 
-    def feature_engineering(self, feature_options):
-        # Implement feature engineering based on the options provided
-        pass
+        This function splits the dataset into training, test, and valuation sets based on the options provided.
+
+        Parameters:
+            date_col (str): Name of the column containing dates
+            date_split (bool): Whether to split the dataset based on dates.
+            train_cutoff_date (str): Date to split training set on
+            test_cutoff_date (str): Date to split test set on
+            val_cutoff_date (str): Date to split valuation set on
+            train_cutoff_prop (float): Proportion of data to use for training
+            test_cutoff_prop (float): Proportion of data to use for test
+
+        Returns:
+            None
+
+        Examples:
+            # Assuming 'automl' is an instance of AutomatedMachineLearning class
+            automl.split_data()
+        """
+        self.X = self.data.drop(self.target_variable, axis=1)
+        self.y = self.data[self.target_variable]
+
+        if date_split:
+            # Split the data based on dates
+            self.data[date_col] = pd.to_datetime(self.data[date_col])
+            self.data = self.data.sort_values(by=date_col)
+            self.X_train = self.data[self.data[date_col] < pd.to_datetime(train_cutoff_date)]
+            self.X_test = self.data[(self.data[date_col] >= pd.to_datetime(train_cutoff_date)) & (self.data[date_col] < pd.to_datetime(test_cutoff_date))]
+            self.X_val = self.data[self.data[date_col] >= pd.to_datetime(test_cutoff_date)]
+            self.y_train = self.y[self.data[date_col] < pd.to_datetime(train_cutoff_date)]
+            self.y_test = self.y[(self.data[date_col] >= pd.to_datetime(train_cutoff_date)) & (self.data[date_col] < pd.to_datetime(test_cutoff_date))]
+            self.y_val = self.y[self.data[date_col] >= pd.to_datetime(test_cutoff_date)]
+        else:
+            # Split the data based on proportion
+            val_cutoff_prop = 1.0 - train_cutoff_prop - test_cutoff_prop
+            self.X_train, self.X_temp, self.y_train, self.y_temp = train_test_split(self.X, self.y, train_size=train_cutoff_prop, test_size=(1.0 - train_cutoff_prop))
+            self.X_test, self.X_val, self.y_test, self.y_val = train_test_split(self.X_temp, self.y_temp, train_size=test_cutoff_prop / (test_cutoff_prop + val_cutoff_prop), test_size=val_cutoff_prop / (test_cutoff_prop + val_cutoff_prop))
+
+    def feature_engineering(self, feature_options_num:str = 'norm', feature_options_cat:str='onehot', num_bins:int=10):
+        """
+        Preprocess features based on the options provided.
+
+        Parameters:
+            feature_options_num (list): List of preprocessing options for each feature. Options are 'norm', 'onehot', 'woe' and 'bin'
+            feature_options_cat (list): List of preprocessing options for each feature. Options are 'norm', 'onehot', 'woe' and 'bin'
+
+        Returns:
+            None
+
+        Examples:
+            # Assuming 'automl' is an instance of AutomatedMachineLearning class
+            automl.feature_engineering()
+        """
+        # Normalise numerical features if normalise option is selected
+        for i, feature in enumerate(self.numerical_features):
+            if feature_options_num == 'normalise':
+                scaler = StandardScaler()
+                self.X_train[feature] = scaler.fit_transform(self.X_train[feature].values.reshape(-1, 1))
+                self.X_test[feature] = scaler.transform(self.X_test[feature].values.reshape(-1, 1))
+                self.X_val[feature] = scaler.transform(self.X_val[feature].values.reshape(-1, 1))
+            elif feature_options_num[i] == 'bin': # Bin numerical features if bin option is selected
+                self.X_train[feature], bin_edges = pd.cut(self.X_train[feature], bins=num_bins, retbins=True)
+                self.X_test[feature] = pd.cut(self.X_test[feature], bins=bin_edges)
+                self.X_val[feature] = pd.cut(self.X_val[feature], bins=bin_edges)
+            else:
+                raise ValueError('Invalid value for feature_options. Valid values are \'normalise\', \'bin\', \'woe\', and \'onehot\'')
+        for i, feature in enumerate(self.categorical_features):   
+            if feature_options_cat == 'woe': # Replace numerical features with weight of evidence values if woe option is selected
+                self.X_train[feature] = self.X_train[feature].apply(lambda x: self.woe(x, self.y_train))
+                self.X_test[feature] = self.X_test[feature].apply(lambda x: self.woe(x, self.y_train))
+                self.X_val[feature] = self.X_val[feature].apply(lambda x: self.woe(x, self.y_train))
+            elif feature_options_cat[i] == 'onehot':
+                self.X_train = pd.get_dummies(self.X_train, columns=[feature], drop_first=True)
+                self.X_test = pd.get_dummies(self.X_test, columns=[feature], drop_first=True)
+                self.X_val = pd.get_dummies(self.X_val, columns=[feature], drop_first=True)
+            else:
+                raise ValueError('Invalid value for feature_options. Valid values are \'normalise\', \'bin\', \'woe\', and \'onehot\'')
 
     def perform_random_sampling(self):
         # Implement random under and over-sampling to equalize classes for classification
-        pass
+        oversampled = resample(self.X_train[self.y_train == 1], replace=True, n_samples=self.X_train[self.y_train == 0].shape[0], random_state=42)
 
     def train_classification_models(self):
         # Implement training of different classification models with random sampling
